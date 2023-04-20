@@ -52,7 +52,7 @@ impl TalentSchedGenerator {
         let actors = self.generate_actors(&mut rng, &nb_scenes_per_cluster);
 
         let instance = TalentSchedInstance {
-            nb_scenes: self.nb_clusters,
+            nb_scenes: self.nb_scenes,
             nb_actors: self.nb_actors,
             cost,
             duration,
@@ -72,7 +72,7 @@ impl TalentSchedGenerator {
         let mut costs = vec![];
 
         let rand_cost = Uniform::new_inclusive(self.min_cost, self.max_cost);
-        for _ in 0..self.nb_clusters {
+        for _ in 0..self.nb_actors {
             costs.push(rand_cost.sample(rng));
         }
 
@@ -83,7 +83,7 @@ impl TalentSchedGenerator {
         let mut durations = vec![];
 
         let rand_duration = Uniform::new_inclusive(self.min_duration, self.max_duration);
-        for _ in 0..self.nb_clusters {
+        for _ in 0..self.nb_scenes {
             durations.push(rand_duration.sample(rng));
         }
 
@@ -93,19 +93,19 @@ impl TalentSchedGenerator {
     fn generate_actors(&self, rng: &mut impl Rng, nb_scenes_per_cluster: &Vec<usize>) -> Vec<Vec<usize>> {
         let mut actors = vec![vec![0; self.nb_scenes]; self.nb_actors];
 
-        let rand_duration = Uniform::new_inclusive(0.0, 1.0);
+        let rand = Uniform::new_inclusive(0.0, 1.0);
 
         let mut scene = 0;
         for nb_scenes in nb_scenes_per_cluster {
             for i in 0..self.nb_actors {
-                actors[i][scene] = if rand_duration.sample(rng) < self.density {
+                actors[i][scene] = if rand.sample(rng) < self.density {
                     1
                 } else {
                     0
                 };
 
                 for j in 1..*nb_scenes {
-                    actors[i][scene+j] = if rand_duration.sample(rng) < self.similarity {
+                    actors[i][scene+j] = if rand.sample(rng) < self.similarity {
                         1
                     } else {
                         0
