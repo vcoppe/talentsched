@@ -17,10 +17,11 @@ pub struct TalentSchedState {
 pub struct TalentSched {
     pub instance: TalentSchedInstance,
     pub actors: Vec<Set64>,
+    pub forced_cost: usize,
 }
 
 impl TalentSched {
-    pub fn new(instance: TalentSchedInstance) -> Self {
+    pub fn new(instance: TalentSchedInstance, forced_cost: Option<usize>) -> Self {
         let mut actors = vec![Set64::default(); instance.nb_scenes];
 
         for i in 0..instance.nb_actors {
@@ -31,7 +32,12 @@ impl TalentSched {
             }
         }
 
-        TalentSched {instance, actors }
+        let forced_cost = match forced_cost {
+            Some(cost) => cost,
+            None => Self::forced_cost(&instance, &actors),
+        };
+
+        TalentSched {instance, actors, forced_cost }
     }
 
     fn get_present(&self, state: &TalentSchedState) -> Set64 {
@@ -49,6 +55,16 @@ impl TalentSched {
         }
 
         before.inter(after)
+    }
+
+    fn forced_cost(instance: &TalentSchedInstance, actors: &Vec<Set64>) -> usize {
+        let mut cost = 0;
+        for (scene, actors) in actors.iter().enumerate() {
+            for actor in actors.iter() {
+                cost += instance.cost[actor] * instance.duration[scene];
+            }
+        }
+        cost
     }
 }
 
@@ -72,13 +88,7 @@ impl Problem for TalentSched {
     }
 
     fn initial_value(&self) -> isize {
-        let mut cost = 0;
-        for (scene, actors) in self.actors.iter().enumerate() {
-            for actor in actors.iter() {
-                cost += self.instance.cost[actor] * self.instance.duration[scene];
-            }
-        }
-        - (cost as isize)
+        - (self.forced_cost as isize)
     }
 
     fn transition(&self, state: &Self::State, decision: ddo::Decision) -> Self::State {
@@ -130,17 +140,18 @@ impl Problem for TalentSched {
 }
 
 /// This structure implements the TalentSched relaxation
-pub struct TalentSchedRelax {
+pub struct TalentSchedRelax<'a> {
     pb: TalentSched,
+    compression_bound: Option<CompressedSolutionBound<'a, TalentSchedState>>,
 }
 
-impl TalentSchedRelax {
-    pub fn new(pb: TalentSched) -> Self {
-        Self { pb }
+impl<'a> TalentSchedRelax<'a> {
+    pub fn new(pb: TalentSched, compression_bound: Option<CompressedSolutionBound<'a, TalentSchedState>>) -> Self {
+        Self { pb, compression_bound }
     }
 }
 
-impl Relaxation for TalentSchedRelax {
+impl<'a> Relaxation for TalentSchedRelax<'a> {
     type State = TalentSchedState;
 
     fn merge(&self, states: &mut dyn Iterator<Item = &Self::State>) -> Self::State {
@@ -168,8 +179,12 @@ impl Relaxation for TalentSchedRelax {
         cost
     }
 
-    fn fast_upper_bound(&self, _state: &Self::State) -> isize {
-        0
+    fn fast_upper_bound(&self, state: &Self::State) -> isize {
+        let mut rub = 0;
+        if let Some(bound) = &self.compression_bound {
+            rub = rub.min(bound.get_ub(state));
+        }
+        rub
     }
 }
 
