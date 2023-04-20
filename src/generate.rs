@@ -103,15 +103,18 @@ impl TalentSchedGenerator {
                 } else {
                     0
                 };
+            }
 
-                for j in 1..*nb_scenes {
+            for j in 1..*nb_scenes {
+                for i in 0..self.nb_actors {
                     actors[i][scene+j] = if rand.sample(rng) < self.similarity {
-                        1
+                        actors[i][scene]
                     } else {
-                        0
+                        1 - actors[i][scene]
                     };
                 }
             }
+
             scene += *nb_scenes;
         }
 
