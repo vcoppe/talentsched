@@ -33,6 +33,23 @@ impl TalentSched {
 
         TalentSched {instance, actors }
     }
+
+    fn get_present(&self, state: &TalentSchedState) -> Set64 {
+        let mut before = Set64::default();
+        let mut after = Set64::default();
+
+        for i in 0..self.instance.nb_scenes {
+            if !state.maybe_scenes.contains(i) {
+                if state.scenes.contains(i) {
+                    after.union_inplace(&self.actors[i]);
+                } else {
+                    before.union_inplace(&self.actors[i]);
+                }
+            }
+        }
+
+        before.inter(after)
+    }
 }
 
 impl Problem for TalentSched {
@@ -55,7 +72,13 @@ impl Problem for TalentSched {
     }
 
     fn initial_value(&self) -> isize {
-        0
+        let mut cost = 0;
+        for (scene, actors) in self.actors.iter().enumerate() {
+            for actor in actors.iter() {
+                cost += self.instance.cost[actor] * self.instance.duration[scene];
+            }
+        }
+        - (cost as isize)
     }
 
     fn transition(&self, state: &Self::State, decision: ddo::Decision) -> Self::State {
@@ -70,24 +93,7 @@ impl Problem for TalentSched {
     fn transition_cost(&self, state: &Self::State, decision: ddo::Decision) -> isize {
         let scene = decision.value as usize;
 
-        let mut before = Set64::default();
-        let mut after = Set64::default();
-
-        for i in 0..self.instance.nb_scenes {
-            if i == scene {
-                continue;
-            }
-
-            if !state.maybe_scenes.contains(i) {
-                if state.scenes.contains(i) {
-                    after.union_inplace(&self.actors[i]);
-                } else {
-                    before.union_inplace(&self.actors[i]);
-                }
-            }
-        }
-
-        let pay = self.actors[scene].union(before.inter(after));
+        let pay = self.get_present(state).diff(self.actors[scene]);
 
         let mut cost = 0;
         for actor in pay.iter() {
