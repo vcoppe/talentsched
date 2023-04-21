@@ -14,7 +14,7 @@ pub struct TalentSchedGenerator {
     seed: Option<u128>,
     #[clap(short='n', long, default_value="20")]
     nb_scenes: usize,
-    #[clap(short='p', long, default_value="5")]
+    #[clap(short='a', long, default_value="5")]
     nb_actors: usize,
     /// The number of clusters of similar scene types
     #[clap(short='c', long, default_value="10")]
