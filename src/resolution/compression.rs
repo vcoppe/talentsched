@@ -123,7 +123,7 @@ impl<'a> Compression for TalentSchedCompression<'a> {
         let mut sol = vec![];
 
         for decision in solution {
-            for _ in 0..self.size[*self.membership.get(&decision.value).unwrap() as usize] {
+            for _ in 0..self.size[decision.value as usize] {
                 sol.push(Decision { variable: decision.variable, value: decision.value });
             }
         }
