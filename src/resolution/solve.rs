@@ -128,7 +128,7 @@ impl Solve {
     pub fn solve(&self) {
         let instance: TalentSchedInstance = serde_json::from_reader(BufReader::new(File::open(&self.instance).unwrap())).unwrap();
         
-        let problem = TalentSched::new(instance, None);
+        let problem = TalentSched::new(instance);
 
         let compressor = TalentSchedCompression::new(&problem, self.n_meta_items);
         let relaxation = get_relaxation(&compressor, self.compression_bound);

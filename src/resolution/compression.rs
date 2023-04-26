@@ -20,7 +20,6 @@ impl<'a> Elem for Item<'a> {
 
     fn at(&self, i: usize) -> f64 {
         self.pb.instance.actors[i][self.id] as f64
-        // (self.pb.instance.actors[i][self.id] * self.pb.instance.cost[i]) as f64
     }
 }
 
@@ -54,15 +53,15 @@ impl<'a> TalentSchedCompression<'a> {
             actors,
         };
 
-        let meta_problem = TalentSched::new(meta_instance, Some(problem.forced_cost));
+        let meta_problem = TalentSched::new(meta_instance);
 
         let mut membership = HashMap::new();
         let mut members = vec![Set64::default(); n_meta_scenes];
         let mut size = vec![0; n_meta_scenes];
-        for (i, j) in clustering.membership.iter().enumerate() {
-            membership.insert(i as isize, *j as isize);
-            members[*j].add_inplace(i);
-            size[*j] += 1;
+        for (i, j) in clustering.membership.iter().copied().enumerate() {
+            membership.insert(i as isize, j as isize);
+            members[j].add_inplace(i);
+            size[j] += 1;
         }
 
         TalentSchedCompression {
@@ -89,7 +88,7 @@ impl<'a> TalentSchedCompression<'a> {
 
         for (i, j) in membership.iter().copied().enumerate() {
             for actor in 0..pb.instance.nb_actors {
-                meta_actors[actor][j] = meta_actors[actor][j].min(pb.instance.actors[actor][i]);
+                meta_actors[actor][j] &= pb.instance.actors[actor][i];
             }
         }
 
@@ -109,10 +108,18 @@ impl<'a> Compression for TalentSchedCompression<'a> {
             scenes: Set64::default(),
             maybe_scenes: Set64::default(),
         };
-        
+
+        if !state.maybe_scenes.is_empty() {
+            return compressed;
+        }
+
         for i in 0..self.meta_problem.instance.nb_scenes {
-            if state.scenes.inter(self.members[i]) == self.members[i] {
+            let present_from_cluster = state.scenes.inter(self.members[i]);
+            if present_from_cluster == self.members[i] {
                 compressed.scenes.add_inplace(i);
+            } else if !present_from_cluster.is_empty() {
+                compressed.scenes = Set64::default();
+                break;
             }
         }
 

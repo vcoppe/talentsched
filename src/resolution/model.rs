@@ -18,11 +18,10 @@ pub struct TalentSchedState {
 pub struct TalentSched {
     pub instance: TalentSchedInstance,
     pub actors: Vec<Set64>,
-    pub forced_cost: usize,
 }
 
 impl TalentSched {
-    pub fn new(instance: TalentSchedInstance, forced_cost: Option<usize>) -> Self {
+    pub fn new(instance: TalentSchedInstance) -> Self {
         let mut actors = vec![Set64::default(); instance.nb_scenes];
 
         for i in 0..instance.nb_actors {
@@ -33,12 +32,7 @@ impl TalentSched {
             }
         }
 
-        let forced_cost = match forced_cost {
-            Some(cost) => cost,
-            None => Self::forced_cost(&instance, &actors),
-        };
-
-        TalentSched {instance, actors, forced_cost }
+        TalentSched {instance, actors }
     }
 
     fn get_present(&self, state: &TalentSchedState) -> Set64 {
@@ -56,16 +50,6 @@ impl TalentSched {
         }
 
         before.inter(after)
-    }
-
-    fn forced_cost(instance: &TalentSchedInstance, actors: &Vec<Set64>) -> usize {
-        let mut cost = 0;
-        for (scene, actors) in actors.iter().enumerate() {
-            for actor in actors.iter() {
-                cost += instance.cost[actor] * instance.duration[scene];
-            }
-        }
-        cost
     }
 }
 
@@ -89,7 +73,7 @@ impl Problem for TalentSched {
     }
 
     fn initial_value(&self) -> isize {
-        - (self.forced_cost as isize)
+        0
     }
 
     fn transition(&self, state: &Self::State, decision: ddo::Decision) -> Self::State {
@@ -104,7 +88,7 @@ impl Problem for TalentSched {
     fn transition_cost(&self, state: &Self::State, decision: ddo::Decision) -> isize {
         let scene = decision.value as usize;
 
-        let pay = self.get_present(state).diff(self.actors[scene]);
+        let pay = self.get_present(state).union(self.actors[scene]);
 
         let mut cost = 0;
         for actor in pay.iter() {
@@ -134,7 +118,6 @@ impl Problem for TalentSched {
         if variable.id() + count < self.instance.nb_scenes {
             for i in state.maybe_scenes.iter() {
                 f.apply(Decision { variable, value: i as isize });
-                count += 1;
             }
         }
     }
@@ -202,6 +185,10 @@ impl<'a> Relaxation for TalentSchedRelax<'a> {
                 }
                 lb -= self.pb.instance.duration[scene] as f64 * (total_cost + total_cost_sq / total_cost) / 2.0;
             }
+
+            for actor in self.pb.actors[scene].iter() {
+                lb += (self.pb.instance.cost[actor] * self.pb.instance.duration[scene]) as f64;
+            }
         }
 
         r.sort_unstable();
@@ -214,9 +201,16 @@ impl<'a> Relaxation for TalentSchedRelax<'a> {
             }
         }
 
-        let mut rub = - (lb.ceil() as isize);
+        if lb - lb.floor() < 1e-2 {
+            lb = lb.floor();
+        } else {
+            lb = lb.ceil();
+        }
+
+        let mut rub = - (lb as isize);
         if let Some(bound) = &self.compression_bound {
-            rub = rub.min(bound.get_ub(state));
+            let ub = bound.get_ub(state);
+            rub = rub.min(ub);
         }
         rub
     }
