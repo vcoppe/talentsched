@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use clustering::{kmeans, Elem};
 use ddo::{Compression, Problem, Decision};
@@ -27,7 +27,7 @@ pub struct TalentSchedCompression<'a> {
     pub problem: &'a TalentSched,
     pub meta_problem: TalentSched,
     pub cluster_membership: Vec<usize>,
-    pub membership: HashMap<isize, isize>,
+    pub membership: HashMap<isize, HashSet<isize>>,
     pub members: Vec<Set64>,
     pub n_last_members: Vec<Vec<Set64>>,
 }
@@ -72,9 +72,11 @@ impl<'a> TalentSchedCompression<'a> {
         let mut membership = HashMap::new();
         for i in 0..n_meta_scenes {
             for k in members[i].iter() {
+                let mut vals = HashSet::default();
                 for l in members[i].iter() {
-                    membership.insert(k as isize, l as isize);
+                    vals.insert(l as isize);
                 }
+                membership.insert(k as isize, vals);
             }
         }
 

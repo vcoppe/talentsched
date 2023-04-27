@@ -130,7 +130,11 @@ impl Problem for TalentSched {
 
         let mut count = 0;
         for i in state.scenes.iter() {
-            if !self.forced_pairs.contains_key(&i) {
+            if let Some(j) = self.forced_pairs.get(&i) {
+                if !state.scenes.contains(*j) {
+                    f.apply(Decision { variable, value: i as isize });
+                }
+            } else {
                 f.apply(Decision { variable, value: i as isize });
             }
             count += 1;
