@@ -1,4 +1,4 @@
-use std::vec;
+use std::{vec, collections::HashMap};
 
 use ddo::*;
 use ordered_float::OrderedFloat;
@@ -18,6 +18,7 @@ pub struct TalentSchedState {
 pub struct TalentSched {
     pub instance: TalentSchedInstance,
     pub actors: Vec<Set64>,
+    pub forced_pairs: HashMap<usize, usize>,
 }
 
 impl TalentSched {
@@ -32,7 +33,17 @@ impl TalentSched {
             }
         }
 
-        TalentSched {instance, actors }
+        let mut forced_pairs = HashMap::default();
+        for i in 1..instance.nb_scenes {
+            for j in (0..i).rev() {
+                if actors[i] == actors[j] {
+                    forced_pairs.insert(i, j);
+                    break;
+                }
+            }
+        }
+
+        TalentSched { instance, actors, forced_pairs }
     }
 
     fn get_present(&self, state: &TalentSchedState) -> Set64 {
@@ -108,10 +119,20 @@ impl Problem for TalentSched {
     }
 
     fn for_each_in_domain(&self, variable: ddo::Variable, state: &Self::State, f: &mut dyn ddo::DecisionCallback) {
-        let mut count = 0;
-
         for i in state.scenes.iter() {
-            f.apply(Decision { variable, value: i as isize });
+            if let Some(j) = self.forced_pairs.get(&i) {
+                if !state.scenes.contains(*j) && !state.maybe_scenes.contains(*j) {
+                    f.apply(Decision { variable, value: i as isize });
+                    return;
+                }
+            }
+        }
+
+        let mut count = 0;
+        for i in state.scenes.iter() {
+            if !self.forced_pairs.contains_key(&i) {
+                f.apply(Decision { variable, value: i as isize });
+            }
             count += 1;
         }
 
@@ -126,7 +147,7 @@ impl Problem for TalentSched {
 /// This structure implements the TalentSched relaxation
 pub struct TalentSchedRelax<'a> {
     pb: TalentSched,
-    compression_bound: Option<CompressedSolutionBound<'a, TalentSchedState>>,
+    pub compression_bound: Option<CompressedSolutionBound<'a, TalentSchedState>>,
 }
 
 impl<'a> TalentSchedRelax<'a> {

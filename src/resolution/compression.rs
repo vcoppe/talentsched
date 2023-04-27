@@ -28,7 +28,6 @@ pub struct TalentSchedCompression<'a> {
     pub meta_problem: TalentSched,
     pub membership: HashMap<isize, isize>,
     pub members: Vec<Set64>,
-    pub size: Vec<usize>,
 }
 
 impl<'a> TalentSchedCompression<'a> {
@@ -42,26 +41,30 @@ impl<'a> TalentSchedCompression<'a> {
         }
         let clustering = kmeans(n_meta_scenes, Some(0), &elems, 1000);
 
-        let duration = Self::compute_meta_duration(problem, &clustering.membership, n_meta_scenes);
         let actors = Self::compute_meta_actors(problem, &clustering.membership, n_meta_scenes);
         
         let meta_instance = TalentSchedInstance {
-            nb_scenes: n_meta_scenes,
+            nb_scenes: problem.instance.nb_scenes,
             nb_actors: problem.instance.nb_actors,
             cost: problem.instance.cost.clone(),
-            duration,
+            duration: problem.instance.duration.clone(),
             actors,
         };
 
         let meta_problem = TalentSched::new(meta_instance);
 
-        let mut membership = HashMap::new();
         let mut members = vec![Set64::default(); n_meta_scenes];
-        let mut size = vec![0; n_meta_scenes];
         for (i, j) in clustering.membership.iter().copied().enumerate() {
-            membership.insert(i as isize, j as isize);
             members[j].add_inplace(i);
-            size[j] += 1;
+        }
+
+        let mut membership = HashMap::new();
+        for i in 0..n_meta_scenes {
+            for k in members[i].iter() {
+                for l in members[i].iter() {
+                    membership.insert(k as isize, l as isize);
+                }
+            }
         }
 
         TalentSchedCompression {
@@ -69,18 +72,7 @@ impl<'a> TalentSchedCompression<'a> {
             meta_problem,
             membership,
             members,
-            size,
         }
-    }
-
-    fn compute_meta_duration(pb: &TalentSched, membership: &Vec<usize>, n_meta_scenes: usize) -> Vec<usize> {
-        let mut meta_duration = vec![0; n_meta_scenes];
-        
-        for (i, j) in membership.iter().copied().enumerate() {
-            meta_duration[j] += pb.instance.duration[i];
-        }
-
-        meta_duration
     }
 
     fn compute_meta_actors(pb: &TalentSched, membership: &Vec<usize>, n_meta_scenes: usize) -> Vec<Vec<usize>> {
@@ -91,8 +83,15 @@ impl<'a> TalentSchedCompression<'a> {
                 meta_actors[actor][j] &= pb.instance.actors[actor][i];
             }
         }
+        
+        let mut meta_actors_expanded = vec![vec![]; pb.instance.nb_actors];
+        for j in membership.iter().copied() {
+            for actor in 0..pb.instance.nb_actors {
+                meta_actors_expanded[actor].push(meta_actors[actor][j]);
+            }
+        }
 
-        meta_actors
+        meta_actors_expanded
     }
 }
 
@@ -104,42 +103,17 @@ impl<'a> Compression for TalentSchedCompression<'a> {
     }
 
     fn compress(&self, state: &TalentSchedState) -> TalentSchedState {
-        let mut compressed = TalentSchedState {
-            scenes: Set64::default(),
-            maybe_scenes: Set64::default(),
-        };
-
         if !state.maybe_scenes.is_empty() {
-            return compressed;
-        }
-
-        for i in 0..self.meta_problem.instance.nb_scenes {
-            let present_from_cluster = state.scenes.inter(self.members[i]);
-            if present_from_cluster == self.members[i] {
-                compressed.scenes.add_inplace(i);
-            } else if !present_from_cluster.is_empty() {
-                compressed.scenes = Set64::default();
-                break;
+            TalentSchedState {
+                scenes: Set64::default(),
+                maybe_scenes: Set64::default(),
             }
+        } else {
+            state.clone()
         }
-
-        compressed
     }
 
     fn decompress(&self, solution: &Vec<Decision>) -> Vec<Decision> {
-        let mut sol = vec![];
-
-        for decision in solution {
-            for _ in 0..self.size[decision.value as usize] {
-                sol.push(Decision { variable: decision.variable, value: decision.value });
-            }
-        }
-
-        let start = self.problem.instance.nb_scenes - sol.len();
-        for (i, decision) in sol.iter_mut().enumerate() {
-            decision.variable.0 = start + i;
-        }
-
-        sol
+        solution.clone()
     }
 }
