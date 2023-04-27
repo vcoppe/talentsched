@@ -1,11 +1,11 @@
 use std::fmt::Display;
 use std::str::FromStr;
-use std::time::Instant;
-use std::{fs::File, io::BufReader, time::Duration};
+use std::sync::Arc;
+use std::{fs::File, io::BufReader};
 use std::hash::Hash;
 
 use clap::Args;
-use ddo::{FixedWidth, TimeBudget, NoDupFringe, MaxUB, ParBarrierSolverFc, Completion, Solver, CompressedSolutionBound, DecisionHeuristicBuilder, NoHeuristicBuilder, CompressedSolutionHeuristicBuilder, SimpleBarrier, HybridSolver, WidthHeuristic, Problem, Relaxation, StateRanking, Cutoff, Fringe};
+use ddo::{CompressedSolutionBound, DecisionHeuristicBuilder, NoHeuristicBuilder, CompressedSolutionHeuristicBuilder, Problem, SubProblem, CompilationInput, NoCutoff, CompilationType, FRONTIER, NoHeuristic, Mdd, VizConfigBuilder, DecisionDiagram, EmptyBarrier};
 
 use crate::resolution::model::{TalentSched, TalentSchedRelax, TalentSchedRanking};
 use crate::instance::TalentSchedInstance;
@@ -82,48 +82,6 @@ fn get_heuristic<'a>(compressor: &'a TalentSchedCompression, compression_heurist
     }
 }
 
-fn get_solver<'a, State>(
-    solver: SolverType,
-    threads: usize,
-    problem: &'a (dyn Problem<State = State> + Send + Sync),
-    relaxation: &'a (dyn Relaxation<State = State> + Send + Sync),
-    ranking: &'a (dyn StateRanking<State = State> + Send + Sync),
-    width: &'a (dyn WidthHeuristic<State> + Send + Sync),
-    cutoff: &'a (dyn Cutoff + Send + Sync), 
-    fringe: &'a mut (dyn Fringe<State = State> + Send + Sync),
-    heuristic_builder: &'a (dyn DecisionHeuristicBuilder<State> + Send + Sync),
-
-) -> Box<dyn Solver + 'a>
-where State: Eq + Hash + Clone + Send + Sync
-{
-    match solver {
-        SolverType::Classic => {
-            Box::new(ParBarrierSolverFc::custom(
-                problem,
-                relaxation,
-                ranking,
-                width,
-                cutoff,
-                fringe,
-                threads,
-                heuristic_builder
-            ))
-        },
-        SolverType::Hybrid => {
-            Box::new(HybridSolver::<State, SimpleBarrier<State>>::custom(
-                problem,
-                relaxation,
-                ranking,
-                width,
-                cutoff,
-                fringe,
-                threads,
-                heuristic_builder
-            ))
-        },
-    }
-}
-
 impl Solve {
     pub fn solve(&self) {
         let instance: TalentSchedInstance = serde_json::from_reader(BufReader::new(File::open(&self.instance).unwrap())).unwrap();
@@ -134,48 +92,83 @@ impl Solve {
         let relaxation = get_relaxation(&compressor, self.compression_bound);
         let heuristic = get_heuristic(&compressor, self.compression_heuristic);
 
-        let width = FixedWidth(self.width);
-        let cutoff = TimeBudget::new(Duration::from_secs(self.timeout));
         let ranking = TalentSchedRanking;
-        let mut fringe = NoDupFringe::new(MaxUB::new(&ranking));
 
-        let mut solver = get_solver(
-            self.solver,
-            self.threads,
-            &problem,
-            relaxation.as_ref(),
-            &ranking,
-            &width,
-            &cutoff,
-            &mut fringe,
-            heuristic.as_ref()
-        );
+        let barrier = EmptyBarrier::default();
 
-        let start = Instant::now();
+        let residual = SubProblem { 
+            state: Arc::new(problem.initial_state()), 
+            value: 0, 
+            path: vec![], 
+            ub: isize::MAX, 
+            depth: 0
+        };
+        let input = CompilationInput {
+            comp_type: CompilationType::Relaxed,
+            problem: &problem,
+            relaxation: relaxation.as_ref(),
+            ranking: &ranking,
+            cutoff: &NoCutoff,
+            max_width: self.width,
+            residual: &residual,
+            best_lb: isize::MIN,
+            barrier: &barrier,
+            heuristic: heuristic.get_heuristic(&problem.initial_state()),
+        };
 
-        let Completion{best_value, is_exact} = solver.maximize();
+        let mut clean = Mdd::<TalentSchedState, {FRONTIER}>::new();
+        _ = clean.compile(&input);
 
-        let duration = start.elapsed();
+        let config = VizConfigBuilder::default()
+            .show_deleted(true)
+            .group_merged(true)
+            .build()
+            .unwrap();
+        
+        let dot = clean.as_graphviz(&config);
 
-        let best_value = best_value.map(|v| -v).unwrap_or(isize::MAX);
-        let best_bound = -solver.best_upper_bound();
-        let explored = solver.explored();
+        println!("original DD");
+        println!("{dot}");
+        
+        print!("clustering: ");
+        compressor.members.iter().for_each(|m| print!(" {m}"));
+        println!();
+        println!("clustered instance");
+        println!("{}", serde_json::to_string_pretty(&compressor.meta_problem.instance).unwrap());
 
-        let mut sol = String::new();
-        solver.best_solution().unwrap()
-            .iter().map(|d| d.value)
-            .for_each(|v| sol.push_str(&format!("{v} ")));
+        let residual = SubProblem { 
+            state: Arc::new(compressor.meta_problem.initial_state()), 
+            value: 0, 
+            path: vec![], 
+            ub: isize::MAX, 
+            depth: 0
+        };
+        let input = CompilationInput {
+            comp_type: CompilationType::Relaxed,
+            problem: &compressor.meta_problem,
+            relaxation: relaxation.as_ref(),
+            ranking: &ranking,
+            cutoff: &NoCutoff,
+            max_width: usize::MAX,
+            residual: &residual,
+            best_lb: isize::MIN,
+            barrier: &barrier,
+            heuristic: Arc::new(NoHeuristic),
+        };
 
-        println!("===== settings =====");
-        println!("solver     : {}", self.solver);
-        println!("cmpr. bound: {}", self.compression_bound);
-        println!("cmpr. heu. : {}", self.compression_heuristic);
-        println!("===== results  =====");
-        println!("is exact   : {is_exact}");
-        println!("best value : {best_value}");
-        println!("best bound : {best_bound}");
-        println!("duration   : {:.3} seconds", duration.as_secs_f32());
-        println!("explored   : {explored}");
-        println!("solution   : {sol}");
+        let mut clean = Mdd::<TalentSchedState, {FRONTIER}>::new();
+        _ = clean.compile(&input);
+
+        let config = VizConfigBuilder::default()
+            .show_deleted(true)
+            .group_merged(true)
+            .build()
+            .unwrap();
+        
+        let dot = clean.as_graphviz(&config);
+
+        println!("compressed DD");
+        println!("{dot}");
+
     }
 }
