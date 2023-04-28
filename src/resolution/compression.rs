@@ -26,10 +26,7 @@ impl<'a> Elem for Item<'a> {
 pub struct TalentSchedCompression<'a> {
     pub problem: &'a TalentSched,
     pub meta_problem: TalentSched,
-    pub cluster_membership: Vec<usize>,
     pub membership: HashMap<isize, HashSet<isize>>,
-    pub members: Vec<Set64>,
-    pub n_last_members: Vec<Vec<Set64>>,
 }
 
 impl<'a> TalentSchedCompression<'a> {
@@ -60,15 +57,6 @@ impl<'a> TalentSchedCompression<'a> {
             members[j].add_inplace(i);
         }
 
-        let mut n_last_members = members.iter().map(|m| vec![Set64::empty(); m.len() + 1]).collect::<Vec<Vec<Set64>>>();
-        for (cluster, m) in members.iter().enumerate() {
-            for (i, j) in m.iter().enumerate() {
-                for k in 0..(i+1) {
-                    n_last_members[cluster][m.len() - k].add_inplace(j);
-                }
-            }
-        }
-
         let mut membership = HashMap::new();
         for i in 0..n_meta_scenes {
             for k in members[i].iter() {
@@ -83,10 +71,7 @@ impl<'a> TalentSchedCompression<'a> {
         TalentSchedCompression {
             problem,
             meta_problem,
-            cluster_membership: clustering.membership,
             membership,
-            members,
-            n_last_members,
         }
     }
 
@@ -118,23 +103,7 @@ impl<'a> Compression for TalentSchedCompression<'a> {
     }
 
     fn compress(&self, state: &TalentSchedState) -> TalentSchedState {
-        let mut compressed = TalentSchedState {
-            scenes: Set64::default(),
-            maybe_scenes: Set64::default(),
-        };
-
-        if state.maybe_scenes.is_empty() {
-            let mut n_from_cluster = vec![0; self.members.len()];
-            for i in state.scenes.iter() {
-                n_from_cluster[self.cluster_membership[i]] += 1;
-            }
-
-            for (i, n) in n_from_cluster.iter().copied().enumerate() {
-                compressed.scenes.union_inplace(&self.n_last_members[i][n]);
-            }
-        }
-
-        compressed
+        state.clone()
     }
 
     fn decompress(&self, solution: &Vec<Decision>) -> Vec<Decision> {

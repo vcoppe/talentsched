@@ -18,7 +18,7 @@ pub struct TalentSchedState {
 pub struct TalentSched {
     pub instance: TalentSchedInstance,
     pub actors: Vec<Set64>,
-    pub forced_pairs: HashMap<usize, usize>,
+    pub clusters: HashMap<usize, Set64>,
 }
 
 impl TalentSched {
@@ -33,17 +33,21 @@ impl TalentSched {
             }
         }
 
-        let mut forced_pairs = HashMap::default();
-        for i in 1..instance.nb_scenes {
-            for j in (0..i).rev() {
-                if actors[i] == actors[j] {
-                    forced_pairs.insert(i, j);
-                    break;
+        let mut clusters = HashMap::default();
+        for i in 0..instance.nb_scenes {
+            let mut cluster = Set64::default();
+            for j in 0..instance.nb_scenes {
+                if i != j && actors[i] == actors[j] {
+                    cluster.add_inplace(j);
+                }
+
+                if !cluster.is_empty() {
+                    clusters.insert(i, cluster);
                 }
             }
         }
 
-        TalentSched { instance, actors, forced_pairs }
+        TalentSched { instance, actors, clusters }
     }
 
     fn get_present(&self, state: &TalentSchedState) -> Set64 {
@@ -119,24 +123,24 @@ impl Problem for TalentSched {
     }
 
     fn for_each_in_domain(&self, variable: ddo::Variable, state: &Self::State, f: &mut dyn ddo::DecisionCallback) {
+        let mut forced = false;
+
         for i in state.scenes.iter() {
-            if let Some(j) = self.forced_pairs.get(&i) {
-                if !state.scenes.contains(*j) && !state.maybe_scenes.contains(*j) {
+            if let Some(cluster) = self.clusters.get(&i) {
+                if !cluster.diff(state.scenes).diff(state.maybe_scenes).is_empty() {
                     f.apply(Decision { variable, value: i as isize });
-                    return;
+                    forced = true;
                 }
             }
         }
 
+        if forced {
+            return;
+        }
+
         let mut count = 0;
         for i in state.scenes.iter() {
-            if let Some(j) = self.forced_pairs.get(&i) {
-                if !state.scenes.contains(*j) {
-                    f.apply(Decision { variable, value: i as isize });
-                }
-            } else {
-                f.apply(Decision { variable, value: i as isize });
-            }
+            f.apply(Decision { variable, value: i as isize });
             count += 1;
         }
 
