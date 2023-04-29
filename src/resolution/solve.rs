@@ -66,11 +66,11 @@ impl Display for SolverType {
     }
 }
 
-fn get_relaxation<'a>(compressor: &'a TalentSchedCompression, compression_bound: bool) -> Box<TalentSchedRelax<'a>> {
+fn get_relaxation<'a>(compressors: &'a Vec<TalentSchedCompression>, compression_bound: bool) -> Box<TalentSchedRelax<'a>> {
     if compression_bound {
-        Box::new(TalentSchedRelax::new(compressor.problem.clone(), Some(CompressedSolutionBound::new(compressor))))
+        Box::new(TalentSchedRelax::new(compressors[0].problem.clone(), Some(compressors.iter().map(|c| CompressedSolutionBound::new(c)).collect())))
     } else {
-        Box::new(TalentSchedRelax::new(compressor.problem.clone(), None))
+        Box::new(TalentSchedRelax::new(compressors[0].problem.clone(), None))
     }
 }
 
@@ -130,9 +130,9 @@ impl Solve {
         
         let problem = TalentSched::new(instance);
 
-        let compressor = TalentSchedCompression::new(&problem, self.n_meta_items);
-        let relaxation = get_relaxation(&compressor, self.compression_bound);
-        let heuristic = get_heuristic(&compressor, self.compression_heuristic);
+        let compressors = (0..3).map(|i| TalentSchedCompression::new(&problem, self.n_meta_items, i)).collect::<Vec<TalentSchedCompression>>();
+        let relaxation = get_relaxation(&compressors, self.compression_bound);
+        let heuristic = get_heuristic(&compressors[0], self.compression_heuristic);
 
         let width = FixedWidth(self.width);
         let cutoff = TimeBudget::new(Duration::from_secs(self.timeout));

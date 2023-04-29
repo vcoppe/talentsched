@@ -126,12 +126,12 @@ impl Problem for TalentSched {
 /// This structure implements the TalentSched relaxation
 pub struct TalentSchedRelax<'a> {
     pb: TalentSched,
-    compression_bound: Option<CompressedSolutionBound<'a, TalentSchedState>>,
+    compression_bounds: Option<Vec<CompressedSolutionBound<'a, TalentSchedState>>>,
 }
 
 impl<'a> TalentSchedRelax<'a> {
-    pub fn new(pb: TalentSched, compression_bound: Option<CompressedSolutionBound<'a, TalentSchedState>>) -> Self {
-        Self { pb, compression_bound }
+    pub fn new(pb: TalentSched, compression_bounds: Option<Vec<CompressedSolutionBound<'a, TalentSchedState>>>) -> Self {
+        Self { pb, compression_bounds }
     }
 }
 
@@ -208,9 +208,11 @@ impl<'a> Relaxation for TalentSchedRelax<'a> {
         }
 
         let mut rub = - (lb as isize);
-        if let Some(bound) = &self.compression_bound {
-            let ub = bound.get_ub(state);
-            rub = rub.min(ub);
+        if let Some(bounds) = &self.compression_bounds {
+            for bound in bounds.iter() {
+                let ub = bound.get_ub(state);
+                rub = rub.min(ub);
+            }
         }
         rub
     }

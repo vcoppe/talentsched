@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
 use ddo::{Compression, Problem, Decision};
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaChaRng;
+use rand_distr::{Uniform, Distribution};
 use smallbitset::Set64;
 
 use crate::instance::TalentSchedInstance;
@@ -16,8 +19,8 @@ pub struct TalentSchedCompression<'a> {
 }
 
 impl<'a> TalentSchedCompression<'a> {
-    pub fn new(problem: &'a TalentSched, n_meta_scenes: usize) -> Self {
-        let membership = Self::cluster_scenes(problem, n_meta_scenes);
+    pub fn new(problem: &'a TalentSched, n_meta_scenes: usize, seed: u128) -> Self {
+        let membership = Self::cluster_scenes(problem, n_meta_scenes, seed);
 
         let duration = Self::compute_meta_duration(problem, &membership, n_meta_scenes);
         let actors = Self::compute_meta_actors(problem, &membership, n_meta_scenes);
@@ -72,7 +75,9 @@ impl<'a> TalentSchedCompression<'a> {
         meta_actors
     }
 
-    fn cluster_scenes(pb: &TalentSched, n_meta_scenes: usize) -> Vec<usize> {
+    fn cluster_scenes(pb: &TalentSched, n_meta_scenes: usize, seed: u128) -> Vec<usize> {
+        let mut rng = Self::rng(seed);
+
         let mut clusters = vec![];
         (0..pb.instance.nb_scenes).for_each(|i| {
             let mut cluster = Set64::default();
@@ -81,7 +86,7 @@ impl<'a> TalentSchedCompression<'a> {
         });
 
         while clusters.len() > n_meta_scenes {
-            let mut min_loss = (usize::MAX, 0, 0);
+            let mut losses = vec![];
 
             for (i, a) in clusters.iter().enumerate() {
                 for (j, b) in clusters.iter().enumerate().skip(i+1) {
@@ -104,16 +109,23 @@ impl<'a> TalentSchedCompression<'a> {
                         }
                     }
 
-                    if loss < min_loss.0 {
-                        min_loss = (loss, i, j);
-                    }
+                    losses.push((loss, i, j));
                 }
             }
+            
+            losses.sort_unstable();
 
-            let cluster = clusters.remove(min_loss.2);
+            let loss = if seed == 0 {
+                losses[0]
+            } else {
+                let rand = Uniform::new(0, losses.len().min(5));
+                losses[rand.sample(&mut rng)]
+            };
 
-            clusters[min_loss.1].0.inter_inplace(&cluster.0);
-            clusters[min_loss.1].1.union_inplace(&cluster.1);
+            let cluster = clusters.remove(loss.2);
+
+            clusters[loss.1].0.inter_inplace(&cluster.0);
+            clusters[loss.1].1.union_inplace(&cluster.1);
         }
 
         let mut membership = vec![0; pb.instance.nb_scenes];
@@ -124,6 +136,13 @@ impl<'a> TalentSchedCompression<'a> {
         }
  
         membership
+    }
+
+    fn rng(init: u128) -> impl Rng {
+        let mut seed = [0_u8; 32];
+        seed.iter_mut().zip(init.to_be_bytes().into_iter()).for_each(|(s, i)| *s = i);
+        seed.iter_mut().rev().zip(init.to_le_bytes().into_iter()).for_each(|(s, i)| *s = i);
+        ChaChaRng::from_seed(seed)
     }
 }
 
