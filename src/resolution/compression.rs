@@ -10,6 +10,7 @@ use super::model::{TalentSched, TalentSchedState};
 pub struct TalentSchedCompression<'a> {
     pub problem: &'a TalentSched,
     pub meta_problem: TalentSched,
+    pub class_membership: Vec<usize>,
     pub membership: HashMap<isize, isize>,
     pub members: Vec<Set64>,
     pub size: Vec<usize>,
@@ -44,6 +45,7 @@ impl<'a> TalentSchedCompression<'a> {
         TalentSchedCompression {
             problem,
             meta_problem,
+            class_membership: membership,
             membership: mapping,
             members,
             size,
@@ -172,5 +174,15 @@ impl<'a> Compression for TalentSchedCompression<'a> {
         }
 
         sol
+    }
+
+    fn offset(&self, state: &Self::State) -> isize {
+        let mut offset = 0;
+        for i in state.scenes.iter() {
+            for a in self.problem.actors[i].diff(self.meta_problem.actors[self.class_membership[i]]).iter() {
+                offset += (self.problem.instance.cost[a] * self.problem.instance.duration[i]) as isize;
+            }
+        }
+        offset
     }
 }

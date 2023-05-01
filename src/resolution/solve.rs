@@ -1,11 +1,12 @@
 use std::fmt::Display;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Instant;
 use std::{fs::File, io::BufReader, time::Duration};
 use std::hash::Hash;
 
 use clap::Args;
-use ddo::{FixedWidth, TimeBudget, NoDupFringe, MaxUB, ParBarrierSolverFc, Completion, Solver, CompressedSolutionBound, DecisionHeuristicBuilder, NoHeuristicBuilder, CompressedSolutionHeuristicBuilder, SimpleBarrier, HybridSolver, WidthHeuristic, Problem, Relaxation, StateRanking, Cutoff, Fringe};
+use ddo::{FixedWidth, TimeBudget, NoDupFringe, MaxUB, ParBarrierSolverFc, Completion, Solver, CompressedSolutionBound, DecisionHeuristicBuilder, NoHeuristicBuilder, CompressedSolutionHeuristicBuilder, SimpleBarrier, HybridSolver, WidthHeuristic, Problem, Relaxation, StateRanking, Cutoff, Fringe, FullMdd};
 
 use crate::resolution::model::{TalentSched, TalentSchedRelax, TalentSchedRanking};
 use crate::instance::TalentSchedInstance;
@@ -68,15 +69,15 @@ impl Display for SolverType {
 
 fn get_relaxation<'a>(compressor: &'a TalentSchedCompression, compression_bound: bool) -> Box<TalentSchedRelax<'a>> {
     if compression_bound {
-        Box::new(TalentSchedRelax::new(compressor.problem.clone(), Some(CompressedSolutionBound::new(compressor))))
+        Box::new(TalentSchedRelax::new(compressor.problem.clone(), Some(CompressedSolutionBound::new(compressor, None))))
     } else {
         Box::new(TalentSchedRelax::new(compressor.problem.clone(), None))
     }
 }
 
-fn get_heuristic<'a>(compressor: &'a TalentSchedCompression, compression_heuristic: bool) -> Box<dyn DecisionHeuristicBuilder<TalentSchedState> + Send + Sync + 'a> {
+fn get_heuristic<'a>(compressor: &'a TalentSchedCompression, compression_heuristic: bool, solutions: Option<Arc<FullMdd<TalentSchedState>>>) -> Box<dyn DecisionHeuristicBuilder<TalentSchedState> + Send + Sync + 'a> {
     if compression_heuristic {
-        Box::new(CompressedSolutionHeuristicBuilder::new(compressor, &compressor.membership))
+        Box::new(CompressedSolutionHeuristicBuilder::new(compressor, &compressor.membership, solutions))
     } else {
         Box::new(NoHeuristicBuilder::default())
     }
@@ -132,7 +133,7 @@ impl Solve {
 
         let compressor = TalentSchedCompression::new(&problem, self.n_meta_items);
         let relaxation = get_relaxation(&compressor, self.compression_bound);
-        let heuristic = get_heuristic(&compressor, self.compression_heuristic);
+        let heuristic = get_heuristic(&compressor, self.compression_heuristic, relaxation.compression_bound.as_ref().map(|b| b.compressed_solutions.clone()));
 
         let width = FixedWidth(self.width);
         let cutoff = TimeBudget::new(Duration::from_secs(self.timeout));
