@@ -5,7 +5,7 @@ use std::{fs::File, io::BufReader};
 use std::hash::Hash;
 
 use clap::Args;
-use ddo::{CompressedSolutionBound, DecisionHeuristicBuilder, NoHeuristicBuilder, CompressedSolutionHeuristicBuilder, Problem, SubProblem, CompilationInput, NoCutoff, CompilationType, FRONTIER, NoHeuristic, Mdd, VizConfigBuilder, DecisionDiagram, EmptyBarrier};
+use ddo::{CompressedSolutionBound, DecisionHeuristicBuilder, NoHeuristicBuilder, CompressedSolutionHeuristicBuilder, Problem, SubProblem, CompilationInput, NoCutoff, CompilationType, FRONTIER, NoHeuristic, Mdd, VizConfigBuilder, DecisionDiagram, EmptyBarrier, FullMdd};
 
 use crate::resolution::model::{TalentSched, TalentSchedRelax, TalentSchedRanking};
 use crate::instance::TalentSchedInstance;
@@ -68,15 +68,15 @@ impl Display for SolverType {
 
 fn get_relaxation<'a>(compressor: &'a TalentSchedCompression, compression_bound: bool) -> Box<TalentSchedRelax<'a>> {
     if compression_bound {
-        Box::new(TalentSchedRelax::new(compressor.problem.clone(), Some(CompressedSolutionBound::new(compressor))))
+        Box::new(TalentSchedRelax::new(compressor.problem.clone(), Some(CompressedSolutionBound::new(compressor, None))))
     } else {
         Box::new(TalentSchedRelax::new(compressor.problem.clone(), None))
     }
 }
 
-fn get_heuristic<'a>(compressor: &'a TalentSchedCompression, compression_heuristic: bool) -> Box<dyn DecisionHeuristicBuilder<TalentSchedState> + Send + Sync + 'a> {
+fn get_heuristic<'a>(compressor: &'a TalentSchedCompression, compression_heuristic: bool, solutions: Option<Arc<FullMdd<TalentSchedState>>>) -> Box<dyn DecisionHeuristicBuilder<TalentSchedState> + Send + Sync + 'a> {
     if compression_heuristic {
-        Box::new(CompressedSolutionHeuristicBuilder::new(compressor, &compressor.membership))
+        Box::new(CompressedSolutionHeuristicBuilder::new(compressor, &compressor.membership, solutions))
     } else {
         Box::new(NoHeuristicBuilder::default())
     }
@@ -90,7 +90,7 @@ impl Solve {
 
         let compressor = TalentSchedCompression::new(&problem, self.n_meta_items);
         let relaxation = get_relaxation(&compressor, self.compression_bound);
-        let heuristic = get_heuristic(&compressor, self.compression_heuristic);
+        let heuristic = get_heuristic(&compressor, self.compression_heuristic, relaxation.compression_bound.as_ref().map(|b| b.compressed_solutions.clone()));
 
         let ranking = TalentSchedRanking;
 

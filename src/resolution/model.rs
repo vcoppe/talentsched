@@ -126,7 +126,7 @@ impl Problem for TalentSched {
 /// This structure implements the TalentSched relaxation
 pub struct TalentSchedRelax<'a> {
     pb: TalentSched,
-    compression_bound: Option<CompressedSolutionBound<'a, TalentSchedState>>,
+    pub compression_bound: Option<CompressedSolutionBound<'a, TalentSchedState>>,
 }
 
 impl<'a> TalentSchedRelax<'a> {
@@ -209,8 +209,7 @@ impl<'a> Relaxation for TalentSchedRelax<'a> {
 
         let mut rub = - (lb as isize);
         if let Some(bound) = &self.compression_bound {
-            let ub = bound.get_ub(state);
-            rub = rub.min(ub);
+            rub = rub.min(bound.get_ub(state));
         }
         rub
     }

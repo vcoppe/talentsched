@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use clustering::{kmeans, Elem};
 use ddo::{Compression, Problem, Decision};
 use smallbitset::Set64;
 
@@ -8,24 +7,10 @@ use crate::instance::TalentSchedInstance;
 
 use super::model::{TalentSched, TalentSchedState};
 
-struct Item<'a> {
-    id: usize,
-    pb: &'a TalentSched,
-}
-
-impl<'a> Elem for Item<'a> {
-    fn dimensions(&self) -> usize {
-        self.pb.instance.nb_actors
-    }
-
-    fn at(&self, i: usize) -> f64 {
-        self.pb.instance.actors[i][self.id] as f64
-    }
-}
-
 pub struct TalentSchedCompression<'a> {
     pub problem: &'a TalentSched,
     pub meta_problem: TalentSched,
+    pub class_membership: Vec<usize>,
     pub membership: HashMap<isize, isize>,
     pub members: Vec<Set64>,
     pub size: Vec<usize>,
@@ -33,17 +18,10 @@ pub struct TalentSchedCompression<'a> {
 
 impl<'a> TalentSchedCompression<'a> {
     pub fn new(problem: &'a TalentSched, n_meta_scenes: usize) -> Self {
-        let mut elems = vec![];
-        for i in 0..problem.instance.nb_scenes {
-            elems.push(Item {
-                id: i,
-                pb: problem,
-            });
-        }
-        let clustering = kmeans(n_meta_scenes, Some(0), &elems, 1000);
+        let membership = Self::cluster_scenes(problem, n_meta_scenes);
 
-        let duration = Self::compute_meta_duration(problem, &clustering.membership, n_meta_scenes);
-        let actors = Self::compute_meta_actors(problem, &clustering.membership, n_meta_scenes);
+        let duration = Self::compute_meta_duration(problem, &membership, n_meta_scenes);
+        let actors = Self::compute_meta_actors(problem, &membership, n_meta_scenes);
         
         let meta_instance = TalentSchedInstance {
             nb_scenes: n_meta_scenes,
@@ -55,11 +33,11 @@ impl<'a> TalentSchedCompression<'a> {
 
         let meta_problem = TalentSched::new(meta_instance);
 
-        let mut membership = HashMap::new();
+        let mut mapping = HashMap::new();
         let mut members = vec![Set64::default(); n_meta_scenes];
         let mut size = vec![0; n_meta_scenes];
-        for (i, j) in clustering.membership.iter().copied().enumerate() {
-            membership.insert(i as isize, j as isize);
+        for (i, j) in membership.iter().copied().enumerate() {
+            mapping.insert(i as isize, j as isize);
             members[j].add_inplace(i);
             size[j] += 1;
         }
@@ -67,7 +45,8 @@ impl<'a> TalentSchedCompression<'a> {
         TalentSchedCompression {
             problem,
             meta_problem,
-            membership,
+            class_membership: membership,
+            membership: mapping,
             members,
             size,
         }
@@ -93,6 +72,60 @@ impl<'a> TalentSchedCompression<'a> {
         }
 
         meta_actors
+    }
+
+    fn cluster_scenes(pb: &TalentSched, n_meta_scenes: usize) -> Vec<usize> {
+        let mut clusters = vec![];
+        (0..pb.instance.nb_scenes).for_each(|i| {
+            let mut cluster = Set64::default();
+            cluster.add_inplace(i);
+            clusters.push((pb.actors[i], cluster));
+        });
+
+        while clusters.len() > n_meta_scenes {
+            let mut min_loss = (usize::MAX, 0, 0);
+
+            for (i, a) in clusters.iter().enumerate() {
+                for (j, b) in clusters.iter().enumerate().skip(i+1) {
+
+                    let actors = a.0.inter(b.0);
+
+                    let mut loss = 0;
+                    for s in a.1.iter() {
+                        for k in pb.actors[s].iter() {
+                            if !actors.contains(k) {
+                                loss += pb.instance.cost[k] * pb.instance.duration[s];
+                            }
+                        }
+                    }
+                    for s in b.1.iter() {
+                        for k in pb.actors[s].iter() {
+                            if !actors.contains(k) {
+                                loss += pb.instance.cost[k] * pb.instance.duration[s];
+                            }
+                        }
+                    }
+
+                    if loss < min_loss.0 {
+                        min_loss = (loss, i, j);
+                    }
+                }
+            }
+
+            let cluster = clusters.remove(min_loss.2);
+
+            clusters[min_loss.1].0.inter_inplace(&cluster.0);
+            clusters[min_loss.1].1.union_inplace(&cluster.1);
+        }
+
+        let mut membership = vec![0; pb.instance.nb_scenes];
+        for (i, cluster) in clusters.iter().enumerate() {
+            for j in cluster.1.iter() {
+                membership[j] = i;
+            }
+        }
+ 
+        membership
     }
 }
 
@@ -141,5 +174,15 @@ impl<'a> Compression for TalentSchedCompression<'a> {
         }
 
         sol
+    }
+
+    fn offset(&self, state: &Self::State) -> isize {
+        let mut offset = 0;
+        for i in state.scenes.iter() {
+            for a in self.problem.actors[i].diff(self.meta_problem.actors[self.class_membership[i]]).iter() {
+                offset += (self.problem.instance.cost[a] * self.problem.instance.duration[i]) as isize;
+            }
+        }
+        offset
     }
 }
