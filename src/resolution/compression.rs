@@ -183,6 +183,6 @@ impl<'a> Compression for TalentSchedCompression<'a> {
                 offset += (self.problem.instance.cost[a] * self.problem.instance.duration[i]) as isize;
             }
         }
-        offset
+        - offset
     }
 }
