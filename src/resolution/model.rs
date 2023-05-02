@@ -140,6 +140,7 @@ impl<'a> Relaxation for TalentSchedRelax<'a> {
 
     fn merge(&self, states: &mut dyn Iterator<Item = &Self::State>) -> Self::State {
         let mut merged = states.next().unwrap().clone();
+        merged.maybe_scenes.union_inplace(&merged.scenes);
 
         for s in states {
             merged.scenes.inter_inplace(&s.scenes);
