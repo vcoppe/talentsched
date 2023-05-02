@@ -175,14 +175,4 @@ impl<'a> Compression for TalentSchedCompression<'a> {
 
         sol
     }
-
-    fn offset(&self, state: &Self::State) -> isize {
-        let mut offset = 0;
-        for i in state.scenes.iter() {
-            for a in self.problem.actors[i].diff(self.meta_problem.actors[self.class_membership[i]]).iter() {
-                offset += (self.problem.instance.cost[a] * self.problem.instance.duration[i]) as isize;
-            }
-        }
-        - offset
-    }
 }
